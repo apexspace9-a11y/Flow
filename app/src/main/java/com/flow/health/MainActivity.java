@@ -9,12 +9,15 @@ import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.TimePickerDialog;
 import android.content.BroadcastReceiver;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.os.Build;
 import android.os.Bundle;
+import android.view.HapticFeedbackConstants;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
@@ -27,15 +30,17 @@ public class MainActivity extends Activity {
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
-        getWindow().setStatusBarColor(Color.rgb(8, 13, 21));
-        getWindow().setNavigationBarColor(Color.rgb(8, 13, 21));
+        getWindow().setStatusBarColor(Color.rgb(7, 16, 25));
+        getWindow().setNavigationBarColor(Color.rgb(7, 16, 25));
         web = new WebView(this);
-        web.setBackgroundColor(Color.rgb(8, 13, 21));
+        web.setBackgroundColor(Color.rgb(7, 16, 25));
         WebSettings s = web.getSettings();
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
         s.setAllowFileAccess(true);
         s.setAllowContentAccess(false);
+        s.setBlockNetworkLoads(true);
+        s.setMediaPlaybackRequiresUserGesture(true);
         web.setWebViewClient(new WebViewClient());
         web.addJavascriptInterface(new FlowBridge(), "FlowNative");
         setContentView(web);
@@ -45,8 +50,8 @@ public class MainActivity extends Activity {
     public class FlowBridge {
         @JavascriptInterface public void pickTime(String kind, int minutes) {
             runOnUiThread(() -> new TimePickerDialog(MainActivity.this, (v, h, m) ->
-                    web.evaluateJavascript("window.onNativeTime('" + kind + "'," + (h * 60 + m) + ")", null),
-                    minutes / 60, minutes % 60, true).show());
+                    web.evaluateJavascript("window.onNativeTime('" + safeKind(kind) + "'," + (h * 60 + m) + ")", null),
+                    normalize(minutes) / 60, normalize(minutes) % 60, true).show());
         }
 
         @JavascriptInterface public void setReminders(boolean enabled, int sleep, int wake) {
@@ -58,6 +63,29 @@ public class MainActivity extends Activity {
                 scheduleReminder(902, "wind", normalize(sleep - 45), enabled);
             });
         }
+
+        @JavascriptInterface public void copyText(String text) {
+            runOnUiThread(() -> {
+                ClipboardManager cm = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+                if (cm != null) cm.setPrimaryClip(ClipData.newPlainText("Flow", text == null ? "" : text));
+                web.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
+            });
+        }
+
+        @JavascriptInterface public String readClipboard() {
+            ClipboardManager cm = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+            if (cm == null || !cm.hasPrimaryClip() || cm.getPrimaryClip() == null || cm.getPrimaryClip().getItemCount() == 0) return "";
+            CharSequence value = cm.getPrimaryClip().getItemAt(0).coerceToText(MainActivity.this);
+            return value == null ? "" : value.toString();
+        }
+
+        @JavascriptInterface public void haptic() {
+            runOnUiThread(() -> web.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP));
+        }
+    }
+
+    private static String safeKind(String kind) {
+        return "wake".equals(kind) || "sleep".equals(kind) || "actualSleep".equals(kind) || "actualWake".equals(kind) ? kind : "wake";
     }
 
     private void scheduleReminder(int code, String kind, int minute, boolean enabled) {
@@ -68,7 +96,10 @@ public class MainActivity extends Activity {
         am.cancel(pi);
         if (!enabled) return;
         Calendar c = Calendar.getInstance();
-        c.set(Calendar.HOUR_OF_DAY, minute / 60); c.set(Calendar.MINUTE, minute % 60); c.set(Calendar.SECOND, 0); c.set(Calendar.MILLISECOND, 0);
+        c.set(Calendar.HOUR_OF_DAY, minute / 60);
+        c.set(Calendar.MINUTE, minute % 60);
+        c.set(Calendar.SECOND, 0);
+        c.set(Calendar.MILLISECOND, 0);
         if (c.getTimeInMillis() <= System.currentTimeMillis()) c.add(Calendar.DAY_OF_YEAR, 1);
         am.setInexactRepeating(AlarmManager.RTC_WAKEUP, c.getTimeInMillis(), AlarmManager.INTERVAL_DAY, pi);
     }
@@ -87,7 +118,7 @@ public class MainActivity extends Activity {
             }
             boolean wind = i != null && "wind".equals(i.getStringExtra("kind"));
             String title = wind ? "Hạ nhịp thôi" : "Mở ngày theo nhịp của bạn";
-            String text = wind ? "Giảm ánh sáng, cất caffeine và chọn một việc nhẹ để kết ngày." : "Một ít nước và ánh sáng là đủ để khởi động.";
+            String text = wind ? "Giảm ánh sáng mạnh và chọn một việc nhẹ để khép ngày." : "Một ít nước và ánh sáng là đủ để khởi động.";
             Intent open = new Intent(c, MainActivity.class);
             PendingIntent content = PendingIntent.getActivity(c, wind ? 912 : 911, open, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
             Notification.Builder b = Build.VERSION.SDK_INT >= 26 ? new Notification.Builder(c, channelId) : new Notification.Builder(c);
