@@ -1,0 +1,43 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.flow.health'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'com.flow.health'
+        minSdk 26
+        targetSdk 35
+        versionCode 1
+        versionName '1.0.0'
+    }
+
+    signingConfigs {
+        release {
+            def ks = System.getenv('FLOW_KEYSTORE')
+            if (ks != null && !ks.isEmpty()) {
+                storeFile file(ks)
+                storePassword System.getenv('FLOW_STORE_PASSWORD')
+                keyAlias System.getenv('FLOW_KEY_ALIAS') ?: 'flow'
+                keyPassword System.getenv('FLOW_KEY_PASSWORD')
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            shrinkResources false
+            if (System.getenv('FLOW_KEYSTORE') != null) {
+                signingConfig signingConfigs.release
+            }
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
