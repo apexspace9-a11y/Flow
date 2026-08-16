@@ -1,0 +1,66 @@
+name: Build Flow v1
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Create release key
+        shell: bash
+        run: |
+          PASS="$(openssl rand -hex 24)"
+          echo "FLOW_STORE_PASSWORD=$PASS" >> "$GITHUB_ENV"
+          echo "FLOW_KEY_PASSWORD=$PASS" >> "$GITHUB_ENV"
+          echo "FLOW_KEY_ALIAS=flow" >> "$GITHUB_ENV"
+          echo "FLOW_KEYSTORE=$RUNNER_TEMP/flow-release.jks" >> "$GITHUB_ENV"
+          keytool -genkeypair -v \
+            -keystore "$RUNNER_TEMP/flow-release.jks" \
+            -storepass "$PASS" \
+            -keypass "$PASS" \
+            -alias flow \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -dname "CN=Flow, OU=Flow, O=Flow, L=Local, ST=Local, C=VN"
+
+      - name: Build signed release APK
+        run: gradle --no-daemon assembleRelease
+
+      - name: Name APK
+        run: cp app/build/outputs/apk/release/app-release.apk Flow-v1.0.0.apk
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Flow-v1.0.0
+          path: Flow-v1.0.0.apk
+          if-no-files-found: error
+
+      - name: Publish the single release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view v1.0.0 >/dev/null 2>&1; then
+            gh release upload v1.0.0 Flow-v1.0.0.apk --clobber
+          else
+            gh release create v1.0.0 Flow-v1.0.0.apk --title "Flow v1.0.0" --notes "Flow v1.0.0"
+          fi
